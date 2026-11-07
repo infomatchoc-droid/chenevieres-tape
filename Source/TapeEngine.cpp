@@ -120,9 +120,9 @@ const Machine& machine (int m)
 {
     //                       sat   width drive  bump  hf    asym   wow  flut  hiss
     static const Machine t[3] = {
-        { "CH-80",  0.40, 0.30, 0.40, 1.2, 1.15, 0.000, 0.6, 0.6, -1.0 },  // suisse : précise, propre
-        { "CH-16",  0.50, 0.45, 0.50, 2.6, 1.00, 0.012, 1.0, 1.0,  0.0 },  // américaine : bas ronds, punch
-        { "CH-440", 0.60, 0.60, 0.55, 2.0, 0.72, 0.028, 1.8, 1.6,  2.0 },  // vintage : chaude, douce
+        { "CH-80",  0.40, 0.30, 0.40, 1.8, 1.15, 0.000, 0.6, 0.6, -1.0 },  // suisse : précise, propre
+        { "CH-16",  0.50, 0.45, 0.50, 3.5, 1.00, 0.012, 1.0, 1.0,  0.0 },  // américaine : bas ronds, punch
+        { "CH-440", 0.60, 0.60, 0.55, 3.0, 0.62, 0.028, 1.8, 1.6,  2.0 },  // vintage : chaude, douce
     };
     return t[std::clamp (m, 0, 2)];
 }
@@ -183,8 +183,8 @@ void Engine::update()
 
     // niveau sur la bande : 0 VU = -18 dBFS ; une bande « +6 » encaisse 6 dB de plus
     static const double headroom[3] = { 1.0, 0.5, 0.355 };
-    hScale = 2.4 * headroom[std::clamp (formula, 0, 2)];
-    asym = 2.2 * m.asym;
+    hScale = 5.5 * headroom[std::clamp (formula, 0, 2)];
+    asym = 4.5 * m.asym;
     const double g = measureGain (hyst[0], hScale * dbToGain (-18.0));
     outNorm = 1.0 / (hScale * g);
 

@@ -19,8 +19,8 @@ Par canal, à 2× la fréquence du DAW (44,1 / 48 kHz ; pas de suréchantillonna
    Fréquences proportionnelles à la vitesse ; même modulation sur les deux canaux.
 8. Mix parallèle (direct retardé d'autant), gain de sortie, Auto gain (= -Input). Bypass = mix 0 lissé.
 
-Repères mesurés (CH-16, 15 ips, bande +6, NAB) : THD 1 kHz 0,5 % à 0 VU, 3 % vers -6 dBFS ;
--2 dB à 10 kHz à -6 dBFS (saturation des aigus) contre -0,9 dB à bas niveau.
+Repères mesurés (CH-16, 15 ips, bande +6, NAB, Input 0) : THD 1 kHz 1,3 % à 0 VU (-18 dBFS), 3,6 % à -12 dBFS,
+8,7 % et 1,4 dB de compression à -6 dBFS. (0.1 était calée trois fois trop doucement : quasi transparente.)
 
 Outils : `ctest` (EngineTest : pas de NaN sur toutes les combinaisons, 0 dB à 0 VU, mix 0 % exact, silence),
 `TapeMeasure [machine] [vitesse] [bande] [eq] [bias]` (THD, réponse, souffle ; `FS=96000` pour la fréquence de travail).
