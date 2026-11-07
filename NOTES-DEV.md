@@ -6,21 +6,27 @@ Par canal, à 2× la fréquence du DAW (44,1 / 48 kHz ; pas de suréchantillonna
 
 1. Gain d'entrée.
 2. Préaccentuation d'enregistrement : aigus (50 µs NAB / 35 µs CCIR à 15 ips, 50/70 µs à 7,5 ips, 17,5 µs AES à 30 ips),
-   graves en NAB (3180 µs). Les aigus arrivent donc plus fort sur la bande et saturent avant le reste.
+   graves en NAB (3180 µs). Accentuation des aigus plafonnée à +4 dB : plus fort, l'aigu saturé se replie en
+   intermodulation dans le médium (crêtes à +9 dB sur une caisse claire en 0.1/0.2).
+2b. Compression de bande sur les crêtes (genou très doux, ≈1,7:1, attaque 0,3 ms, retour 70 ms) : transitoires arrondies, colle.
 3. Hystérésis magnétique de Jiles-Atherton (RK2). La machine fixe saturation, largeur du cycle et drive ;
    le Bias resserre (sur-polarisation) ou élargit (sous-polarisation) le cycle. Normalisation : gain 0 dB
    à 0 VU (-18 dBFS), mesuré à chaque changement de réglage. Asymétrie (harmoniques paires) propre à la machine,
    nulle au repos.
-4. Souffle (ajouté sur la bande, donc mis en forme par la désaccentuation).
+3b. Auto-effacement des aigus : passe-bas qui se ferme quand l'aigu enregistré est fort (attaque 0,2 ms, retour 30 ms),
+   plus marqué à 7,5 ips et sur la CH-440 : aigus « soyeux » sans intermodulation.
+4. Souffle + bruit de modulation (grain proportionnel au signal), ajoutés sur la bande.
 5. Désaccentuation de lecture (inverse exact : réponse plate à bas niveau).
 6. Tête de lecture : head bump (32 / 52 / 88 Hz selon la vitesse) et son creux, coupe-bas, pertes HF
    (fréquence selon vitesse, machine et bias).
-7. Pleurage / scintillement : ligne à retard modulée (Hermite), retard fixe 3 ms annoncé au DAW.
-   Fréquences proportionnelles à la vitesse ; même modulation sur les deux canaux.
+7. Vie de la bande : fluctuation de contact tête/bande (niveau), pleurage / scintillement / scrape flutter
+   (ligne à retard modulée, Hermite, retard fixe 3 ms annoncé au DAW, commune aux canaux) et azimut propre à chaque
+   canal (quelques µs, l'image stéréo respire). Bruits filtrés ramenés à un écart-type unitaire.
 8. Mix parallèle (direct retardé d'autant), gain de sortie, Auto gain (= -Input). Bypass = mix 0 lissé.
 
-Repères mesurés (CH-16, 15 ips, bande +6, NAB, Input 0) : THD 1 kHz 1,3 % à 0 VU (-18 dBFS), 3,6 % à -12 dBFS,
-8,7 % et 1,4 dB de compression à -6 dBFS. (0.1 était calée trois fois trop doucement : quasi transparente.)
+Repères (0.3, CH-16, 15 ips, bande +6, NAB, réglages d'usine) sur une boucle batterie/basse à -4 dBFS crête :
+facteur de crête -3,3 dB, 30-80 Hz +3 dB, 10-20 kHz -5 dB. Défauts : Wow 30, Flutter 30, Hiss 15.
+Outils : `TapeRender entree.wav sortie.wav [param=valeur]` (plugin complet, latence compensée), `TapeProcTest`.
 
 Outils : `ctest` (EngineTest : pas de NaN sur toutes les combinaisons, 0 dB à 0 VU, mix 0 % exact, silence),
 `TapeMeasure [machine] [vitesse] [bande] [eq] [bias]` (THD, réponse, souffle ; `FS=96000` pour la fréquence de travail).

@@ -2,6 +2,7 @@
 #include "TapeEngine.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace tape
 {
@@ -120,8 +121,8 @@ const Machine& machine (int m)
 {
     //                       sat   width drive  bump  hf    asym   wow  flut  hiss
     static const Machine t[3] = {
-        { "CH-80",  0.40, 0.30, 0.40, 1.8, 1.15, 0.000, 0.6, 0.6, -1.0 },  // suisse : précise, propre
-        { "CH-16",  0.50, 0.45, 0.50, 3.5, 1.00, 0.012, 1.0, 1.0,  0.0 },  // américaine : bas ronds, punch
+        { "CH-80",  0.40, 0.30, 0.40, 1.8, 1.15, 0.000, 0.6, 0.6, -1.0 },  // précise, propre
+        { "CH-16",  0.50, 0.45, 0.50, 3.2, 1.00, 0.012, 1.0, 1.0,  0.0 },  // gros multipiste 2" : bas gras, punch, colle
         { "CH-440", 0.60, 0.60, 0.55, 3.0, 0.62, 0.028, 1.8, 1.6,  2.0 },  // vintage : chaude, douce
     };
     return t[std::clamp (m, 0, 2)];
@@ -155,7 +156,9 @@ void Engine::prepare (double sampleRate, double baseRate, int maxChannels)
 void Engine::reset()
 {
     for (auto& h : hyst) h.reset();
-    for (auto* b : { &preHf, &preLf, &deHf, &deLf, &bump, &dip, &hp, &lp, &dcBlock, &hissTilt }) b->reset();
+    for (auto* b : { &preHf, &preLf, &deHf, &deLf, &bump, &dip, &hp, &lp, &dcBlock, &hissTilt, &hfSense }) b->reset();
+    for (int c = 0; c < 2; ++c) compEnv[c] = hfEnv[c] = dynLp[c] = gainRnd[c] = azRnd[c] = 0;
+    gainCommon = scrLo = scrHi = 0;
     for (int c = 0; c < 2; ++c)
     {
         std::fill (delayBuf[c].begin(), delayBuf[c].end(), 0.0f);
@@ -194,12 +197,12 @@ void Engine::update()
     else if (speed == 1) tauHf = nab ? 50e-6 : 35e-6;
     else tauHf = 17.5e-6;
     if (nab && speed < 2) tauLf = 3180e-6;
-    const double A = 5.0;   // plafond de l'accentuation des aigus (≈ 14 dB)
+    const double A = 1.6;   // accentuation des aigus limitée (+4 dB) : au-delà, l'aigu saturé se replie en intermodulation dure ; la saturation des aigus passe par l'auto-effacement
     preHf.setFirstOrder (fs, 1, tauHf, 1, tauHf / A);
     deHf.setFirstOrder (fs, 1, tauHf / A, 1, tauHf);
     if (tauLf > 0)
     {
-        const double B = 4.0; // graves enregistrés moins fort (NAB), remontés à la lecture
+        const double B = 2.5; // graves enregistrés moins fort (NAB), remontés à la lecture
         preLf.setFirstOrder (fs, 1.0 / B, tauLf, 1, tauLf);
         deLf.setFirstOrder (fs, 1, tauLf, 1.0 / B, tauLf);
     }
@@ -228,14 +231,36 @@ void Engine::update()
     hissGain = hissPct <= 0 ? 0.0
              : dbToGain (-36.0 + 30.0 * std::log10 (hissPct) + m.hissDb + formulaHiss[std::clamp (formula, 0, 2)] + speedHiss);
 
+    // --- compression de bande : la bande « mange » les crêtes, d'autant plus qu'elles sont aiguës
+    //     (elles arrivent préaccentuées). Seuil lié à la marge de la bande, attaque 0,3 ms, retour 70 ms.
+    const int mi = std::clamp (vals.choice (pMachine), 0, 2);
+    static const double compAmount[3] = { 0.55, 1.0, 1.2 }, eraseAmount[3] = { 0.7, 1.0, 1.25 };
+    compThr = 1.25 / hScale * std::pow (2.0, 0.3 * bias);
+    compExp = 0.5 * 0.42 * compAmount[mi];          // ≈ taux 1,7:1 au-dessus du seuil (genou très doux)
+    compAtk = 1.0 - std::exp (-1.0 / (0.0003 * fs));
+    compRel = 1.0 - std::exp (-1.0 / (0.070 * fs));
+    // auto-effacement : les aigus forts s'effacent eux-mêmes sur la bande (passe-bas qui se ferme)
+    hfSense.setHighPass (fs, 5000.0, 0.7);
+    erasure = 1.6 * eraseAmount[mi] * (hScale / 2.75) * std::pow (2.0, -0.5 * bias) * (speed == 0 ? 1.3 : speed == 1 ? 1.0 : 0.6);
+    eraseAtk = 1.0 - std::exp (-1.0 / (0.0002 * fs));
+    eraseRel = 1.0 - std::exp (-1.0 / (0.030 * fs));
+    fErase = std::min (0.45 * fs, 24000.0);
+
     // --- pleurage / scintillement (en échantillons de retard crête)
     const double wowPct = vals[pWow] / 100.0, flPct = vals[pFlutter] / 100.0;
     wowRate = 0.55 * ips / 15.0 + 0.25;
     flutterRate = 7.0 * ips / 15.0;
-    const double wowDev = 0.0045 * wowPct * m.wowMult * std::sqrt (15.0 / ips);  // écart de vitesse crête
-    const double flDev = 0.0018 * flPct * m.flutterMult;
+    const double wowDev = 0.004 * wowPct * m.wowMult * std::sqrt (15.0 / ips);   // écart de vitesse crête (0,12 % à 30 %)
+    const double flDev = 0.0025 * flPct * m.flutterMult;
     wowDepth = std::min (wowDev / (2 * pi * wowRate) * fs, 0.92 * baseDelay);
     flutterDepth = std::min (flDev / (2 * pi * flutterRate) * fs, 0.05 * baseDelay);
+    // vie de la bande : contact tête/bande (niveau ±0,2 dB à 100 %), azimut qui respire entre canaux,
+    // scrape flutter (frottement, 1–3 kHz) et bruit de modulation (grain qui suit le signal)
+    const double life = 0.5 * (wowPct + flPct);
+    wobble = 0.023 * life * m.wowMult;
+    azDepth = (0.08 + 0.5 * flPct) * m.flutterMult * fs / 96000.0;           // échantillons (quelques µs)
+    scrapeDepth = 0.0009 * flPct * m.flutterMult / (2 * pi * 1800.0) * fs;
+    modNoise = (0.0012 + 0.006 * std::clamp (vals[pHiss] / 100.0, 0.0, 1.0)) * dbToGain (m.hissDb);
 
     // --- gains
     tgtIn = dbToGain (vals[pInput]);
@@ -259,6 +284,12 @@ void Engine::process (float* const* ch, int numCh, int n)
     numCh = std::min (numCh, maxCh);
     const double T = 1.0 / fs;
     const double rndA = 1.0 - std::exp (-2 * pi * 0.4 / fs), rndB = 1.0 - std::exp (-2 * pi * 25.0 / fs);
+    const double scrA = 1.0 - std::exp (-2 * pi * 3000.0 / fs), scrB = 1.0 - std::exp (-2 * pi * 800.0 / fs);
+    const double rndC = 1.0 - std::exp (-2 * pi * 0.5 / fs), rndG = 1.0 - std::exp (-2 * pi * 3.0 / fs);
+    const double rndAz = 1.0 - std::exp (-2 * pi * 1.5 / fs);
+    // un bruit blanc filtré par un passe-bas à un pôle de coefficient a a pour écart-type sqrt (a / (2 - a)) : on ramène à 1
+    const auto unit = [] (double a) { return std::sqrt ((2.0 - a) / a); };
+    const double nA = unit (rndA), nB = unit (rndB) * 1.4, nC = unit (rndC), nG = unit (rndG), nAz = unit (rndAz);
     double sumIn[2] {}, sumOut[2] {};
 
     for (int i = 0; i < n; ++i)
@@ -280,10 +311,14 @@ void Engine::process (float* const* ch, int numCh, int n)
         rndWow += (nextNoise() - rndWow) * rndA;
         rndFl += (nextNoise() - rndFl) * rndB;
         rndFl2 += (rndFl - rndFl2) * rndB;
-        const double wow = 0.55 * std::sin (2 * pi * phW1) + 0.3 * std::sin (2 * pi * phW2) + 0.6 * rndWow;
-        const double fl = 0.5 * std::sin (2 * pi * phF1) + 0.25 * std::sin (2 * pi * phF2) + 0.8 * rndFl2;
-        double mod = std::clamp (curWow * wow + curFl * fl, -0.95 * baseDelay, 0.95 * baseDelay);
-        const double readPos = (double) writePos - (baseDelay + mod);
+        const double wow = 0.55 * std::sin (2 * pi * phW1) + 0.3 * std::sin (2 * pi * phW2) + 0.6 * rndWow * nA;
+        const double fl = 0.5 * std::sin (2 * pi * phF1) + 0.25 * std::sin (2 * pi * phF2) + 0.8 * rndFl2 * nB;
+        // scrape flutter : bruit 0,8–3 kHz
+        const double nz = nextNoise();
+        scrLo += (nz - scrLo) * scrA; scrHi += (nz - scrHi) * scrB;
+        const double scrape = (scrLo - scrHi) * 2.0;
+        double mod = std::clamp (curWow * wow + curFl * fl + scrapeDepth * scrape, -0.9 * baseDelay, 0.9 * baseDelay);
+        gainCommon += (nextNoise() - gainCommon) * rndC;
 
         for (int c = 0; c < numCh; ++c)
         {
@@ -293,17 +328,47 @@ void Engine::process (float* const* ch, int numCh, int n)
 
             // enregistrement
             x = preLf.process (preHf.process (x, c), c);
+
+            // compression de bande sur les crêtes (genou doux)
+            {
+                const double a = std::abs (x);
+                compEnv[c] += (a - compEnv[c]) * (a > compEnv[c] ? compAtk : compRel);
+                const double r = compEnv[c] / compThr;
+                if (r > 0.05) x *= std::pow (1.0 + r * r * r * r, -0.25 * compExp);
+            }
             // asymétrie de la machine (harmoniques paires), nulle au repos : pas de bruit de fond à l'arrêt
             const double xa = x + asym * x * x / (1.0 + 0.1 * x * x);
             double y = hyst[c].process (xa * hScale, T) * outNorm;
             if (asym != 0) y = dcBlock.process (y, c);
-            if (curHiss > 0) y += hissTilt.process (nextNoise(), c) * curHiss;
+
+            // auto-effacement des aigus : passe-bas qui se ferme quand l'aigu enregistré est fort
+            {
+                const double h = std::abs (hfSense.process (y, c));
+                hfEnv[c] += (h - hfEnv[c]) * (h > hfEnv[c] ? eraseAtk : eraseRel);
+                const double e = erasure * hfEnv[c];
+                const double fc = fErase / (1.0 + e * e);
+                const double w = 2 * pi * fc / fs;
+                dynLp[c] += (y - dynLp[c]) * (w / (1.0 + w));
+                y = dynLp[c];
+            }
+
+            // souffle et bruit de modulation (le grain de la bande suit le signal)
+            {
+                const double nzc = hissTilt.process (nextNoise(), c);
+                y += nzc * (curHiss + modNoise * std::abs (y));
+            }
 
             // lecture
             y = deHf.process (deLf.process (y, c), c);
             y = lp.process (hp.process (dip.process (bump.process (y, c), c), c), c);
 
-            // pleurage : écriture puis lecture interpolée (Hermite)
+            // fluctuation de contact tête/bande
+            gainRnd[c] += (nextNoise() - gainRnd[c]) * rndG;
+            y *= 1.0 + wobble * (0.7 * gainCommon * nC + 0.5 * gainRnd[c] * nG);
+
+            // pleurage : écriture puis lecture interpolée (Hermite), azimut propre à chaque canal
+            azRnd[c] += (nextNoise() - azRnd[c]) * rndAz;
+            const double readPos = (double) writePos - (baseDelay + mod + azDepth * azRnd[c] * nAz);
             delayBuf[c][(size_t) (writePos & delayMask)] = (float) y;
             const double fl0 = std::floor (readPos);
             const double t = readPos - fl0;

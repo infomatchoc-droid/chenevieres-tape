@@ -90,6 +90,14 @@ private:
     Biquad preHf, preLf, deHf, deLf, bump, dip, hp, lp, dcBlock, hissTilt;
     double hScale = 1, outNorm = 1, asym = 0, hissGain = 0;
 
+    // compression de bande (crêtes, surtout les aigus préaccentués) et auto-effacement des aigus
+    Biquad hfSense;
+    double compEnv[2] {}, hfEnv[2] {}, dynLp[2] {};
+    double compThr = 1, compExp = 0, compAtk = 0, compRel = 0, erasure = 0, eraseAtk = 0, eraseRel = 0, fErase = 20000;
+    // vie : fluctuations de niveau, azimut, scrape flutter, bruit de modulation
+    double gainRnd[2] {}, gainCommon = 0, azRnd[2] {}, scrLo = 0, scrHi = 0;
+    double wobble = 0, azDepth = 0, scrapeDepth = 0, modNoise = 0;
+
     // pleurage / scintillement
     std::vector<float> delayBuf[2];
     int delayMask = 0, writePos = 0;

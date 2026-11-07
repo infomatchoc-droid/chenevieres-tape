@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ChenevieresTape VERSION 0.2.0)
+project(ChenevieresTape VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -112,4 +112,10 @@ if(CHNV_TESTS)
     target_link_libraries(TapeProcTest PRIVATE ChenevieresTape)
     target_include_directories(TapeProcTest PRIVATE $<TARGET_PROPERTY:ChenevieresTape,INCLUDE_DIRECTORIES>)
     target_compile_definitions(TapeProcTest PRIVATE $<TARGET_PROPERTY:ChenevieresTape,COMPILE_DEFINITIONS>)
+endif()
+if(CHNV_TESTS)
+    add_executable(TapeRender tests/Render.cpp)
+    target_link_libraries(TapeRender PRIVATE ChenevieresTape)
+    target_include_directories(TapeRender PRIVATE $<TARGET_PROPERTY:ChenevieresTape,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(TapeRender PRIVATE $<TARGET_PROPERTY:ChenevieresTape,COMPILE_DEFINITIONS>)
 endif()
